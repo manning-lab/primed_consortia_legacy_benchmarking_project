@@ -3,3 +3,4 @@ workflows:
   - name: plink2_filter_maf
     subclass: WDL
     primaryDescriptorPath: /plink2_filter_maf.wdl
+    topic: Filter plink pgen file by maf
