@@ -16,7 +16,7 @@
 # Output files:
 #   - Filtered pgen/pvar/psam arrays for each chromosome
 #   - combined_variant_IDs_MAF_gt_{maf}.txt
-version 1.1
+version 1.0
 
 workflow plink2_filter_maf {
   input {
