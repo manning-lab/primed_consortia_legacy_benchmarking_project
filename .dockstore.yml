@@ -3,4 +3,7 @@ workflows:
   - name: plink2_filter_maf
     subclass: WDL
     primaryDescriptorPath: /plink2_filter_maf.wdl
+    authors:
+      - name: Alisa Manning
+        email: amanning@broadinstitute.org
     topic: Filter plink pgen file by maf
