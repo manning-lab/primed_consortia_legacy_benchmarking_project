@@ -1,0 +1,166 @@
+# plink2_filter_maf
+
+## Overview
+
+`plink2_filter_maf.wdl` is a WDL workflow for filtering PLINK2 genotype datasets by minor allele frequency (MAF) on a per-chromosome basis and then combining the filtered variant IDs into a single text file.
+
+This workflow is registered in Dockstore via `.dockstore.yml` as the `plink2_filter_maf` WDL workflow.
+
+## Workflow summary
+
+The workflow:
+
+1. Accepts parallel arrays of PLINK2 input files (`.pgen`, `.pvar`, `.psam`), typically one set per chromosome.
+2. Scatters across the input arrays and runs PLINK2 filtering independently for each chromosome.
+3. Applies a required `--maf` threshold.
+4. Optionally restricts processing to a subset of samples and/or variant IDs.
+5. Rewrites chromosome output labels using a configurable PLINK2 `--output-chr` value.
+6. Collects the filtered `.pvar` files and merges their variant IDs into one output file.
+
+## Workflow diagram
+
+```text
+Input arrays (pgen/pvar/psam) + maf
+              |
+              v
+   scatter across chromosomes
+              |
+              v
+      plink2_filter_maf task
+              |
+              +--> filtered .pgen
+              +--> filtered .pvar
+              +--> filtered .psam
+              |
+              v
+   combine_pvar_variant_ids task
+              |
+              v
+combined_variant_IDs_MAF_gt_{maf}.txt
+```
+
+## Inputs
+
+### Required workflow inputs
+
+| Name | Type | Description |
+|------|------|-------------|
+| `pgen_files` | `Array[File]` | Array of PLINK2 `.pgen` files to filter. |
+| `pvar_files` | `Array[File]` | Array of PLINK2 `.pvar` files matching `pgen_files`. |
+| `psam_files` | `Array[File]` | Array of PLINK2 `.psam` files matching `pgen_files`. |
+| `maf` | `Float` | Minor allele frequency threshold passed to `plink2 --maf`. |
+
+### Optional workflow inputs
+
+| Name | Type | Default | Description |
+|------|------|---------|-------------|
+| `output_chr_code` | `String` | `"chrM"` | Value passed to `plink2 --output-chr` to control chromosome code formatting in the output `.pvar`. |
+| `samples_keep` | `File?` | `null` | Optional file passed to `plink2 --keep` to retain only selected samples. |
+| `variant_IDs_keep` | `File?` | `null` | Optional file passed to `plink2 --extract` to retain only selected variant IDs. |
+
+## Outputs
+
+| Name | Type | Description |
+|------|------|-------------|
+| `filtered_pgen` | `Array[File]` | Filtered `.pgen` files, one per scattered chromosome input. |
+| `filtered_pvar` | `Array[File]` | Filtered `.pvar` files, one per scattered chromosome input. |
+| `filtered_psam` | `Array[File]` | Filtered `.psam` files, one per scattered chromosome input. |
+| `combined_variant_list` | `File` | Combined variant ID list produced from all filtered `.pvar` files. |
+
+## Tasks
+
+### `plink2_filter_maf`
+
+Filters one PLINK2 dataset using the provided MAF threshold and optional sample/variant inclusion lists.
+
+#### Behavior
+
+- Symlinks the input `.pgen`, `.pvar`, and `.psam` files into the working directory using the `.pgen` basename as a shared prefix.
+- Runs `plink2 --pfile` on the localized dataset.
+- Optionally adds:
+  - `--keep <samples_keep>`
+  - `--extract <variant_IDs_keep>`
+- Applies:
+  - `--maf <maf>`
+  - `--make-pgen`
+  - `--output-chr <output_chr_code>`
+- Writes outputs with the suffix `_filtered_maf_{maf}`.
+
+#### Runtime
+
+- Docker: `quay.io/biocontainers/plink2:2.00a5.10--h4ac6f70_0`
+- Memory: `16G`
+- Disk: `ceil(3 * size(pgen_file, "GB")) + 10` GB local SSD
+
+### `combine_pvar_variant_ids`
+
+Combines the third column (variant ID column) from each filtered `.pvar` file into a single text file.
+
+#### Behavior
+
+- Iterates through all filtered `.pvar` files.
+- Removes header lines beginning with `#`.
+- Extracts column 3 using `awk '{print $3}'`.
+- Writes the combined list to `combined_variant_IDs_MAF_gt_{maf}.txt`.
+
+#### Runtime
+
+- Docker: `ubuntu:24.04`
+- Memory: `4G`
+- Disk: `ceil(size(pvar_files, "GB")) + 10` GB local SSD
+
+## Example input JSON
+
+```json
+{
+  "plink2_filter_maf.pgen_files": [
+    "chr1.pgen",
+    "chr2.pgen"
+  ],
+  "plink2_filter_maf.pvar_files": [
+    "chr1.pvar",
+    "chr2.pvar"
+  ],
+  "plink2_filter_maf.psam_files": [
+    "cohort.psam",
+    "cohort.psam"
+  ],
+  "plink2_filter_maf.maf": 0.01,
+  "plink2_filter_maf.output_chr_code": "chrM",
+  "plink2_filter_maf.samples_keep": "samples_keep.txt",
+  "plink2_filter_maf.variant_IDs_keep": "variant_ids_keep.txt"
+}
+```
+
+## Example outputs
+
+For an input file named `chr1.pgen` and `maf = 0.01`, the scattered task produces files with names like:
+
+- `chr1_filtered_maf_0.01.pgen`
+- `chr1_filtered_maf_0.01.pvar`
+- `chr1_filtered_maf_0.01.psam`
+
+The workflow also produces:
+
+- `combined_variant_IDs_MAF_gt_0.01.txt`
+
+## Assumptions and usage notes
+
+- The `pgen_files`, `pvar_files`, and `psam_files` arrays must be aligned by index.
+- Each scattered call assumes the corresponding `.pgen`, `.pvar`, and `.psam` files represent the same dataset partition.
+- The workflow does not validate array length consistency explicitly; callers should ensure all arrays have the same length.
+- The combined variant list is a concatenation of variant IDs from filtered `.pvar` files and is not additionally sorted or deduplicated.
+- If the same `.psam` file applies to multiple chromosomes, it may be repeated in the `psam_files` input array.
+
+## Dockstore metadata
+
+This repository includes a Dockstore descriptor file:
+
+- Workflow name: `plink2_filter_maf`
+- Descriptor type: `WDL`
+- Primary descriptor: `/plink2_filter_maf.wdl`
+
+## Contact
+
+- Author: Alisa Manning
+- Email: `amanning@broadinstitute.org`
